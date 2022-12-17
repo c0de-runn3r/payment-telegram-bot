@@ -13,6 +13,8 @@ const ( // for reply messages
 const ( // for bot commands
 	cmdStart = "/start"
 	cmdHelp  = "/help"
+
+	cmdCurrentSubs = "Показати підписників"
 )
 
 const ( // for buttons

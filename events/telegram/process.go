@@ -1,8 +1,10 @@
 package telegram
 
 import (
+	"fmt"
 	"log"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -27,6 +29,21 @@ func (p *Processor) doMessage(text string, chatID int, userID int64, username st
 		p.sendMessageWithReplyKB(chatID, msgHelp, &PricesKeyboard)
 	case btnOneMonth, btnThreeMonths, btnSixMonths:
 		p.doInvoice(text, chatID, username)
+	case cmdCurrentSubs:
+		if CheckAdmin(userID) {
+			msg := "Активні підписки:\n\n"
+			list := p.ListOfCurrentSubscribers()
+			if len(list) > 0 {
+				for i := 0; i < len(list); i++ {
+					msg = msg + list[i] + "\n----------\n"
+				}
+			} else {
+				msg = "Активних підписок зараз немає 😢"
+			}
+			p.sendMessage(chatID, msg)
+		} else {
+			p.sendMessage(chatID, msgUnknownCommand)
+		}
 	default:
 		p.sendMessageWithReplyKB(chatID, msgUnknownCommand, &StartKeyboard)
 	}
@@ -171,4 +188,31 @@ func (p *Processor) EveryHourCheck() {
 		}
 		time.Sleep(time.Hour * 1)
 	}
+}
+
+func (p *Processor) ListOfCurrentSubscribers() []string {
+	list := make([]string, 0)
+	users := storage.DB.GetAllUsers()
+	for i := 0; i < len(users); i++ {
+		valid, till := storage.DB.CheckSubscription(users[i].UserID)
+		if valid {
+			userData, _ := p.tg.GetUser(strconv.Itoa(users[i].ChatID))
+			if userData.Result.Username == "" {
+				userStr := fmt.Sprintf("%s %s - до %s", userData.Result.FirstName, userData.Result.LastName, till.Local().Format("02-01-2006"))
+				list = append(list, userStr)
+			} else {
+				userStr := fmt.Sprintf("%s %s [@%s] - до %s", userData.Result.FirstName, userData.Result.LastName, userData.Result.Username, till.Local().Format("02-01-2006"))
+				list = append(list, userStr)
+			}
+		}
+	}
+	return list
+
+}
+
+func CheckAdmin(userID int64) bool {
+	if strconv.FormatInt(userID, 10) == os.Getenv("ADMIN_ID") {
+		return true
+	}
+	return false
 }

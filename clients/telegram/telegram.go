@@ -115,6 +115,22 @@ func (c *Client) CreateInviteLink(linkName string) error {
 	return nil
 }
 
+func (c *Client) GetUser(chatID string) (*GetUserResponse, error) {
+	q := url.Values{}
+	q.Add("chat_id", chatID)
+
+	resp, err := c.doRequest("getChat", q)
+	if err != nil {
+		return nil, fmt.Errorf("can't get user: %w", err)
+	}
+	var result GetUserResponse
+	err = json.Unmarshal(resp, &result)
+	if err != nil {
+		return nil, fmt.Errorf("can't unmarshal get user responce: %w", err)
+	}
+	return &result, nil
+}
+
 func (c *Client) ApproveChatJoinRequest(userID int64) error {
 	q := url.Values{}
 	q.Add("chat_id", os.Getenv("CHANNEL_ID"))

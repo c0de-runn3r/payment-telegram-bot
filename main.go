@@ -12,8 +12,6 @@ import (
 	"github.com/joho/godotenv"
 )
 
-// to glue everything here
-
 const batchSize = 100
 
 func main() {
