@@ -1,6 +1,7 @@
 package telegram
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"os"
@@ -10,27 +11,44 @@ import (
 
 	"github.com/c0de_runn3r/payments-telegram-bot/clients/telegram"
 	storage "github.com/c0de_runn3r/payments-telegram-bot/files_storage"
+	"github.com/c0de_runn3r/payments-telegram-bot/fsm"
 )
 
 func (p *Processor) doMessage(text string, chatID int, userID int64, username string) error {
 	text = strings.TrimSpace(text)
 	log.Printf("got new command '%s' from '%s'", text, username)
-	// currentState := fsm.SM.GetState(username)
-	switch text {
-	case cmdStart:
-		p.sendMessageWithReplyKB(chatID, msgHello, &StartKeyboard)
-		usr := storage.DB.FindUser(userID)
-		if usr.UserID == 0 {
-			storage.DB.CreateNewUser(userID, chatID)
+	currentState := fsm.SM.GetState(userID)
+	if !CheckAdmin(userID) {
+		switch text {
+		case cmdStart:
+			p.sendMessageWithReplyKB(chatID, msgHello, &StartKeyboard)
+			usr := storage.DB.FindUser(userID)
+			if usr.UserID == 0 {
+				storage.DB.CreateNewUser(userID, chatID)
+			}
+		case cmdHelp, cmdQuestion:
+			fsm.SM.SetState(userID, fsm.QuestionState)
+			p.sendMessage(chatID, msgAskQuestion)
+		case btnOneMonth:
+			p.doInvoice(text, chatID, username)
+
+		default:
+			switch *currentState {
+			case fsm.InitialState:
+				p.sendMessageWithReplyKB(chatID, msgUnknownCommand, &StartKeyboard)
+			case fsm.QuestionState:
+				p.handleQuestion(text, chatID, userID, username)
+				fsm.SM.SetState(userID, fsm.InitialState)
+				p.sendMessageWithReplyKB(chatID, msgQuestionAccepted, &StartKeyboard)
+
+			}
 		}
-	case cmdHelp:
-		p.sendMessageWithReplyKB(chatID, msgHelp, &StartKeyboard)
-	case btnBuySubscription:
-		p.sendMessageWithReplyKB(chatID, msgHelp, &PricesKeyboard)
-	case btnOneMonth, btnThreeMonths, btnSixMonths:
-		p.doInvoice(text, chatID, username)
-	case cmdCurrentSubs:
-		if CheckAdmin(userID) {
+	}
+	if CheckAdmin(userID) {
+		switch text {
+		case cmdStart:
+			p.sendMessageWithReplyKB(chatID, "Привіт\nЦе адмінська панель.", &AdminKeyboard)
+		case cmdCurrentSubs:
 			msg := "Активні підписки:\n\n"
 			list := p.ListOfCurrentSubscribers()
 			if len(list) > 0 {
@@ -40,18 +58,29 @@ func (p *Processor) doMessage(text string, chatID int, userID int64, username st
 			} else {
 				msg = "Активних підписок зараз немає 😢"
 			}
-			p.sendMessage(chatID, msg)
-		} else {
-			p.sendMessage(chatID, msgUnknownCommand)
+			p.sendMessageWithReplyKB(chatID, msg, &AdminKeyboard)
+		default:
+			switch *currentState {
+			case fsm.InitialState:
+				p.sendMessageWithReplyKB(chatID, msgUnknownCommand, &AdminKeyboard)
+			case fsm.ReplyQuestionState:
+				p.sendMessageWithReplyKB(fsm.CTX.Value("replyID").(int), text, &AdminKeyboard)
+			}
 		}
-	default:
-		p.sendMessageWithReplyKB(chatID, msgUnknownCommand, &StartKeyboard)
 	}
+
 	return nil
 }
 
-func (p *Processor) doCallbackQuerry(text string, chatID int, username string) error {
+func (p *Processor) doCallbackQuerry(text string, chatID int, userID int64, username string) error {
 	log.Printf("got new callback data '%s' from '%s'", text, username)
+	switch text[0:3] {
+	case "rpl":
+		replyID, _ := strconv.Atoi(text[4:])
+		fsm.CTX = context.WithValue(fsm.CTX, "replyID", replyID)
+		fsm.SM.SetState(userID, fsm.ReplyQuestionState)
+		p.sendMessage(chatID, msgSendAnswer)
+	}
 	return nil
 }
 
@@ -66,6 +95,26 @@ func (p *Processor) doPreCheckoutQuery(invoiceID string, username string) error 
 	return nil
 }
 
+func (p *Processor) handleQuestion(text string, chatID int, userID int64, username string) {
+	adminChat, _ := strconv.Atoi(os.Getenv("DEVELOPER_ID"))
+	var msg string
+	if username != "" {
+		msg = fmt.Sprintf("Нове запитання від @%s:\n%s", username, text)
+	} else {
+		msg = fmt.Sprintf("Нове запитання (немає username):\n%s", text)
+	}
+	replyQuestionBut := &telegram.InlineKeyboardButton{
+		Text:         "Відповісти",
+		CallbackData: "rpl_" + strconv.Itoa(chatID),
+	}
+	replyQuestionKeyboard := &telegram.InlineKeyboardMarkup{
+		Buttons: [][]telegram.InlineKeyboardButton{
+			{*replyQuestionBut},
+		},
+	}
+	p.sendMessageWithInlineKB(adminChat, msg, replyQuestionKeyboard)
+}
+
 func (p *Processor) doInvoice(text string, chatID int, username string) {
 	var description string
 	var label string
@@ -73,30 +122,20 @@ func (p *Processor) doInvoice(text string, chatID int, username string) {
 	var payload string
 	switch text {
 	case btnOneMonth:
-		description = "Підписка на 'канал' на 1 місяць"
-		label = "MyBrand - 1 місяць"
-		price = 50 * 100
+		description = "Підписка на 1 місяць"
+		label = "Даша про харчування 🪄 - 1 місяць"
+		price = 350 * 100
 		payload = "1monthSub"
-	case btnThreeMonths:
-		description = "Підписка на 'канал' на 3 місяці"
-		label = "MyBrand - 3 місяці"
-		price = 135 * 100
-		payload = "3monthsSub"
-	case btnSixMonths:
-		description = "Підписка на 'канал' на 6 місяців"
-		label = "MyBrand - 6 місяців"
-		price = 250 * 100
-		payload = "6monthsSub"
 	}
-	p.sendInvoice(chatID, username, "Підписка на 'Канал'", description, payload, label, price)
+	p.sendInvoice(chatID, username, "Даша про харчування 🪄", description, payload, label, price)
 }
 
 func (p *Processor) processPayment(chatID int, userID int64, username string, paymentDetails *telegram.SuccessfulPayment) error {
 	product := fetchPayload(*paymentDetails)
 	storage.DB.NewPaymentRecord(paymentDetails.TotalAmount, userID, username, product, paymentDetails.TelegramPaymentID, paymentDetails.ProviderPaymentID)
 	link := os.Getenv("INVITE_LINK")
-	msg := "Дякую за оплату, ось лінк на приєднання:\n" + link
-	p.sendMessage(chatID, msg)
+	msg := msgThnxForPayment + link
+	p.sendMessageWithReplyKB(chatID, msg, &StartKeyboard)
 	storage.DB.UpdateSubscriptionTime(userID, chatID, product)
 	return nil
 }
@@ -173,14 +212,14 @@ func (p *Processor) EveryHourCheck() {
 					log.Printf("removing user [%v] from channel", users[i].UserID)
 					p.tg.BanUser(users[i].UserID)
 					p.tg.UnbanUser(users[i].UserID)
-					p.sendMessageWithReplyKB(users[i].ChatID, msgSubscriptionEnded, &PricesKeyboard)
+					p.sendMessageWithReplyKB(users[i].ChatID, msgSubscriptionEnded, &StartKeyboard)
 					storage.DB.Table("users").Where("user_id = ?", users[i].UserID).Updates(storage.User{WarningMessage: "ended"})
 					continue
 				}
 			}
 			if timeTill.Before(time.Now().UTC().AddDate(0, 0, 3)) { // less than 3 days
 				if users[i].WarningMessage != "ended" && users[i].WarningMessage != "3days" {
-					p.sendMessageWithReplyKB(users[i].ChatID, msgUpdateSubscription, &PricesKeyboard)
+					p.sendMessageWithReplyKB(users[i].ChatID, msgUpdateSubscription, &StartKeyboard)
 					storage.DB.Table("users").Where("user_id = ?", users[i].UserID).Updates(storage.User{WarningMessage: "3days"})
 					continue
 				}
@@ -211,7 +250,9 @@ func (p *Processor) ListOfCurrentSubscribers() []string {
 }
 
 func CheckAdmin(userID int64) bool {
-	if strconv.FormatInt(userID, 10) == os.Getenv("ADMIN_ID") {
+	admin := os.Getenv("ADMIN_ID")
+	devloper := os.Getenv("DEVELOPER_ID")
+	if strconv.FormatInt(userID, 10) == admin || strconv.FormatInt(userID, 10) == devloper {
 		return true
 	}
 	return false

@@ -68,20 +68,6 @@ func (db *DataBase) UpdateSubscriptionTime(userID int64, chatID int, product str
 		if !isVal {
 			db.Table("users").Where("user_id = ?", userID).Updates(User{WarningMessage: " ", DateTill: time.Now().UTC().Add(time.Hour * 24 * 30)})
 		}
-	case "3monthsSub":
-		if isVal {
-			db.Table("users").Where("user_id = ?", userID).Updates(User{WarningMessage: " ", DateTill: usr.DateTill.Add(time.Hour * 24 * 90)})
-		}
-		if !isVal {
-			db.Table("users").Where("user_id = ?", userID).Updates(User{WarningMessage: " ", DateTill: time.Now().UTC().Add(time.Hour * 24 * 90)})
-		}
-	case "6monthsSub":
-		if isVal {
-			db.Table("users").Where("user_id = ?", userID).Updates(User{WarningMessage: " ", DateTill: usr.DateTill.Add(time.Hour * 24 * 180)})
-		}
-		if !isVal {
-			db.Table("users").Where("user_id = ?", userID).Updates(User{WarningMessage: " ", DateTill: time.Now().UTC().Add(time.Hour * 24 * 180)})
-		}
 	}
 }
 

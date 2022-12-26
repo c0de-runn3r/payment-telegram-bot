@@ -5,25 +5,22 @@ import (
 )
 
 var (
-	oneMonth        = &telegram.KeyboardButton{Text: btnOneMonth}
-	threeMonths     = &telegram.KeyboardButton{Text: btnThreeMonths}
-	sixMonths       = &telegram.KeyboardButton{Text: btnSixMonths}
-	buySubscription = &telegram.KeyboardButton{Text: btnBuySubscription}
+	oneMonthBut = &telegram.KeyboardButton{Text: btnOneMonth}
+	questionBut = &telegram.KeyboardButton{Text: cmdQuestion}
+	checkSubs   = &telegram.KeyboardButton{Text: cmdCurrentSubs}
 )
 
 var StartKeyboard = telegram.ReplyKeyboardMarkup{
 	Keyboard: [][]telegram.KeyboardButton{
-		{*buySubscription},
+		{*oneMonthBut},
+		{*questionBut},
 	},
-	ResizeKeyboard:  true,
-	OneTimeKeyboard: true,
+	ResizeKeyboard: true,
 }
 
-var PricesKeyboard = telegram.ReplyKeyboardMarkup{
+var AdminKeyboard = telegram.ReplyKeyboardMarkup{
 	Keyboard: [][]telegram.KeyboardButton{
-		{*oneMonth},
-		{*threeMonths},
-		{*sixMonths},
+		{*checkSubs},
 	},
 	ResizeKeyboard:  true,
 	OneTimeKeyboard: true,
