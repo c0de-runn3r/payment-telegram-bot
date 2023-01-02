@@ -14,11 +14,20 @@ type Update struct {
 }
 
 type IncomingMessage struct {
+	MessageID         int                `json:"message_id"`
 	Text              string             `json:"text"`
 	From              User               `json:"from"`
 	Chat              Chat               `json:"chat"`
+	Photo             []Photo            `json:"photo"`
 	Invoice           *Invoice           `json:"invoice"`
 	SuccessfulPayment *SuccessfulPayment `json:"successful_payment"`
+}
+
+type Photo struct {
+	ID       string `json:"file_id"`
+	UniqueID string `json:"file_unique_id"`
+	Width    int    `json:"width"`
+	Height   int    `json:"height"`
 }
 
 type CallbackQuery struct {
@@ -91,7 +100,9 @@ type InlineKeyboardButton struct {
 
 type MessageParams struct {
 	ChatID         int
+	MessageID      int
 	Text           string
+	PhotoID        string
 	KeyboardReply  *ReplyKeyboardMarkup
 	KeyboardInline *InlineKeyboardMarkup
 }

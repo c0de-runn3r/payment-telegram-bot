@@ -30,7 +30,7 @@ func (p *Processor) doMessage(text string, chatID int, userID int64, username st
 			fsm.SM.SetState(userID, fsm.QuestionState)
 			p.sendMessage(chatID, msgAskQuestion)
 		case btnOneMonth:
-			p.doInvoice(text, chatID, username)
+			p.doManualInvoice(text, chatID, userID, username)
 
 		default:
 			switch *currentState {
@@ -72,7 +72,7 @@ func (p *Processor) doMessage(text string, chatID int, userID int64, username st
 	return nil
 }
 
-func (p *Processor) doCallbackQuerry(text string, chatID int, userID int64, username string) error {
+func (p *Processor) doCallbackQuerry(text string, msgID int, chatID int, userID int64, username string) error {
 	log.Printf("got new callback data '%s' from '%s'", text, username)
 	switch text[0:3] {
 	case "rpl":
@@ -80,8 +80,30 @@ func (p *Processor) doCallbackQuerry(text string, chatID int, userID int64, user
 		fsm.CTX = context.WithValue(fsm.CTX, "replyID", replyID)
 		fsm.SM.SetState(userID, fsm.ReplyQuestionState)
 		p.sendMessage(chatID, msgSendAnswer)
+	case "sub":
+		subID, _ := strconv.Atoi(text[4:])
+		customerUsername := p.getUserID(subID)
+		link := os.Getenv("INVITE_LINK")
+		msg := msgThnxForPayment + link
+		p.sendMessageWithReplyKB(subID, msg, &StartKeyboard)
+		admin_id, _ := strconv.Atoi(os.Getenv("ADMIN_ID"))
+		storage.DB.UpdateSubscriptionTime(int64(subID), chatID, "1monthSub")
+		msgInviteSent := "Посилання користувачеві (немає нікнейма) відправлено. Все гуд 😉"
+		if customerUsername != "" {
+			msgInviteSent = "Посилання користувачеві @" + customerUsername + " відправлено. Все гуд 😉"
+		}
+		p.tg.ChangeMessageText(telegram.MessageParams{
+			ChatID:    admin_id,
+			MessageID: msgID,
+			Text:      msgInviteSent,
+		})
 	}
 	return nil
+}
+
+func (p *Processor) getUserID(subID int) string {
+	usr, _ := p.tg.GetUser(strconv.Itoa(subID))
+	return usr.Result.Username
 }
 
 func (p *Processor) doPreCheckoutQuery(invoiceID string, username string) error {
@@ -96,38 +118,32 @@ func (p *Processor) doPreCheckoutQuery(invoiceID string, username string) error 
 }
 
 func (p *Processor) handleQuestion(text string, chatID int, userID int64, username string) {
-	adminChat, _ := strconv.Atoi(os.Getenv("DEVELOPER_ID"))
+	adminChat, _ := strconv.Atoi(os.Getenv("ADMIN_ID"))
 	var msg string
 	if username != "" {
 		msg = fmt.Sprintf("Нове запитання від @%s:\n%s", username, text)
 	} else {
 		msg = fmt.Sprintf("Нове запитання (немає username):\n%s", text)
 	}
-	replyQuestionBut := &telegram.InlineKeyboardButton{
-		Text:         "Відповісти",
-		CallbackData: "rpl_" + strconv.Itoa(chatID),
-	}
-	replyQuestionKeyboard := &telegram.InlineKeyboardMarkup{
-		Buttons: [][]telegram.InlineKeyboardButton{
-			{*replyQuestionBut},
-		},
-	}
+	replyQuestionKeyboard := makeReplyQuestionKeyboard(chatID)
 	p.sendMessageWithInlineKB(adminChat, msg, replyQuestionKeyboard)
 }
 
-func (p *Processor) doInvoice(text string, chatID int, username string) {
-	var description string
-	var label string
-	var price int
-	var payload string
-	switch text {
-	case btnOneMonth:
-		description = "Підписка на 1 місяць"
-		label = "Даша про харчування 🪄 - 1 місяць"
-		price = 350 * 100
-		payload = "1monthSub"
+func (p *Processor) doManualInvoice(text string, chatID int, userID int64, username string) {
+	msgMakePayment := "Вартість підписки складає <b>350 гривень</b> за <b>1 місяць</b>.\n\nОсь карта для оплати (тицьни щоб скопіювати😉):\n\n<pre>" + os.Getenv("CARD_NUMBER") + "</pre>\n\n❗️Після оплати надішли сюди скріншот про оплату 🙄"
+	p.sendMessage(chatID, msgMakePayment)
+}
+
+func (p *Processor) processPhoto(chatID int, userID int64, username string, photo telegram.Photo) error {
+	adminChat, _ := strconv.Atoi(os.Getenv("ADMIN_ID"))
+	msg := "Користувач (немає нікнейма) підтвердив оплату. Якщо все ок, нажимай 'Підтвердити оплату' 😉"
+	if username != "" {
+		msg = "Користувач @" + username + " підтвердив оплату. Якщо все ок, нажимай 'Підтвердити оплату' 😉"
 	}
-	p.sendInvoice(chatID, username, "Даша про харчування 🪄", description, payload, label, price)
+	confirmPaymentKeyboard := makeConfirmPaymentKeyboard(userID)
+	p.sendMessage(chatID, msgPaymentIsMade)
+	p.sendPhotoWithInlineKB(adminChat, photo, msg, confirmPaymentKeyboard)
+	return nil
 }
 
 func (p *Processor) processPayment(chatID int, userID int64, username string, paymentDetails *telegram.SuccessfulPayment) error {
@@ -155,45 +171,6 @@ func (p *Processor) doJoinRequest(userID int64) error {
 		p.sendMessage(user.ChatID, msgRequestDeclined)
 	}
 	return nil
-}
-
-func (p *Processor) sendInvoice(chatID int, username, title, description, payload, label string, price int) {
-	params := telegram.InvoiceParams{
-		ChatID:        chatID,
-		Title:         title,
-		Description:   description,
-		Payload:       payload,
-		ProviderToken: os.Getenv("PAYMENT_TOKEN"),
-		Currency:      "UAH",
-		Prices: &[]telegram.LabeledPrice{{
-			Label:  label,
-			Amount: price,
-		}},
-	}
-	p.tg.SendInvoice(params)
-}
-
-func (p *Processor) sendMessage(chatID int, message string) {
-	p.tg.SendMessage(telegram.MessageParams{
-		ChatID: chatID,
-		Text:   message,
-	})
-}
-
-func (p *Processor) sendMessageWithReplyKB(chatID int, message string, keyboard *telegram.ReplyKeyboardMarkup) {
-	p.tg.SendMessage(telegram.MessageParams{
-		ChatID:        chatID,
-		Text:          message,
-		KeyboardReply: keyboard,
-	})
-}
-
-func (p *Processor) sendMessageWithInlineKB(chatID int, message string, keyboard *telegram.InlineKeyboardMarkup) {
-	p.tg.SendMessage(telegram.MessageParams{
-		ChatID:         chatID,
-		Text:           message,
-		KeyboardInline: keyboard,
-	})
 }
 
 func fetchPayload(paymentDetails telegram.SuccessfulPayment) (product string) {
@@ -251,9 +228,37 @@ func (p *Processor) ListOfCurrentSubscribers() []string {
 
 func CheckAdmin(userID int64) bool {
 	admin := os.Getenv("ADMIN_ID")
-	devloper := os.Getenv("DEVELOPER_ID")
-	if strconv.FormatInt(userID, 10) == admin || strconv.FormatInt(userID, 10) == devloper {
-		return true
-	}
-	return false
+	return strconv.FormatInt(userID, 10) == admin
+}
+
+func (p *Processor) sendMessage(chatID int, message string) {
+	p.tg.SendMessage(telegram.MessageParams{
+		ChatID: chatID,
+		Text:   message,
+	})
+}
+
+func (p *Processor) sendPhotoWithInlineKB(chatID int, photo telegram.Photo, text string, keyboard *telegram.InlineKeyboardMarkup) {
+	p.tg.SendPhoto(telegram.MessageParams{
+		ChatID:         chatID,
+		PhotoID:        photo.ID,
+		Text:           text,
+		KeyboardInline: keyboard,
+	})
+}
+
+func (p *Processor) sendMessageWithReplyKB(chatID int, message string, keyboard *telegram.ReplyKeyboardMarkup) {
+	p.tg.SendMessage(telegram.MessageParams{
+		ChatID:        chatID,
+		Text:          message,
+		KeyboardReply: keyboard,
+	})
+}
+
+func (p *Processor) sendMessageWithInlineKB(chatID int, message string, keyboard *telegram.InlineKeyboardMarkup) {
+	p.tg.SendMessage(telegram.MessageParams{
+		ChatID:         chatID,
+		Text:           message,
+		KeyboardInline: keyboard,
+	})
 }

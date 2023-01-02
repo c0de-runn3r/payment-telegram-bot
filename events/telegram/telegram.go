@@ -73,9 +73,16 @@ func (p *Processor) processMessage(event events.Event) error {
 	if err != nil {
 		return fmt.Errorf("can't process message %w", err)
 	}
+
+	photo, _ := photo(event)
+
 	if meta.PaymentDetails != nil {
 		if err := p.processPayment(meta.ChatID, meta.UserID, meta.Username, meta.PaymentDetails); err != nil {
 			return fmt.Errorf("can't process payment %w", err)
+		}
+	} else if event.Photo != nil {
+		if err := p.processPhoto(meta.ChatID, meta.UserID, meta.Username, photo); err != nil {
+			return fmt.Errorf("can't process photo %w", err)
 		}
 	} else {
 		if err := p.doMessage(event.Text, meta.ChatID, meta.UserID, meta.Username); err != nil {
@@ -90,7 +97,7 @@ func (p *Processor) processCallbackQuery(event events.Event) error {
 	if err != nil {
 		return fmt.Errorf("can't process callback %w", err)
 	}
-	if err := p.doCallbackQuerry(event.Text, meta.ChatID, meta.UserID, meta.Username); err != nil {
+	if err := p.doCallbackQuerry(event.Text, event.ID, meta.ChatID, meta.UserID, meta.Username); err != nil {
 		return fmt.Errorf("can't process callback %w", err)
 	}
 	return nil
@@ -126,11 +133,17 @@ func meta(event events.Event) (Meta, error) {
 	return res, nil
 }
 
+func photo(event events.Event) (telegram.Photo, bool) {
+	res, ok := event.Photo.(telegram.Photo)
+	return res, ok
+}
+
 func event(upd telegram.Update) events.Event {
 	updType := fetchType(upd)
 	res := events.Event{
 		Type: fetchType(upd),
 		Text: fetchText(upd),
+		ID:   fetchMessageID(upd),
 	}
 
 	if updType == events.Message {
@@ -140,6 +153,18 @@ func event(upd telegram.Update) events.Event {
 				Username:       upd.Message.From.Username,
 				UserID:         upd.Message.From.ID,
 				PaymentDetails: upd.Message.SuccessfulPayment,
+			}
+		} else if upd.Message.Photo != nil {
+			res.Meta = Meta{
+				ChatID:   upd.Message.Chat.ID,
+				Username: upd.Message.From.Username,
+				UserID:   upd.Message.From.ID,
+			}
+			res.Photo = telegram.Photo{
+				ID:       upd.Message.Photo[0].ID,
+				UniqueID: upd.Message.Photo[0].UniqueID,
+				Width:    upd.Message.Photo[0].Width,
+				Height:   upd.Message.Photo[0].Height,
 			}
 		} else {
 			res.Meta = Meta{
@@ -178,6 +203,16 @@ func fetchText(upd telegram.Update) string {
 		return upd.CallbackQuery.Data
 	}
 	return ""
+}
+
+func fetchMessageID(upd telegram.Update) int {
+	if upd.Message != nil {
+		return upd.Message.MessageID
+	}
+	if upd.CallbackQuery != nil {
+		return upd.CallbackQuery.Message.MessageID
+	}
+	return -1
 }
 
 func fetchType(upd telegram.Update) events.Type {

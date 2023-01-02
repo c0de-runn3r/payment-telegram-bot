@@ -19,7 +19,9 @@ const (
 )
 
 type Event struct {
-	Type Type
-	Text string
-	Meta interface{}
+	Type  Type
+	Text  string
+	ID    int
+	Meta  interface{}
+	Photo interface{}
 }

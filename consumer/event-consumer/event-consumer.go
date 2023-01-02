@@ -52,6 +52,7 @@ func (c *Consumer) handleEvents(events []events.Event) error {
 		} else {
 			log.Printf("got new event: %s", event.Text)
 		}
+
 		if err := c.processor.Process(event); err != nil {
 			log.Printf("can't handle event: %s", err.Error())
 

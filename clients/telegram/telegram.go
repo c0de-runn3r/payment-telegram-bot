@@ -42,10 +42,38 @@ func (c *Client) Updates(offset int, limit int) ([]Update, error) {
 	return res.Result, nil
 }
 
+func (c *Client) SendPhoto(params MessageParams) error {
+	q := url.Values{}
+	q.Add("chat_id", strconv.Itoa(params.ChatID))
+	q.Add("photo", params.PhotoID)
+	q.Add("caption", params.Text)
+	if params.KeyboardReply != nil {
+		jsonKeyboard, err := json.Marshal(params.KeyboardReply)
+		if err != nil {
+			return err
+		}
+		q.Add("reply_markup", string(jsonKeyboard))
+	}
+	if params.KeyboardInline != nil {
+		jsonKeyboard, err := json.Marshal(params.KeyboardInline)
+		if err != nil {
+			return err
+		}
+		q.Add("reply_markup", string(jsonKeyboard))
+	}
+
+	_, err := c.doRequest("sendPhoto", q)
+	if err != nil {
+		return fmt.Errorf("can't send message: %w", err)
+	}
+	return nil
+}
+
 func (c *Client) SendMessage(params MessageParams) error {
 	q := url.Values{}
 	q.Add("chat_id", strconv.Itoa(params.ChatID))
 	q.Add("text", params.Text)
+	q.Add("parse_mode", "html")
 	if params.KeyboardReply != nil {
 		jsonKeyboard, err := json.Marshal(params.KeyboardReply)
 		if err != nil {
@@ -61,6 +89,20 @@ func (c *Client) SendMessage(params MessageParams) error {
 		q.Add("reply_markup", string(jsonKeyboard))
 	}
 	_, err := c.doRequest("sendMessage", q)
+	if err != nil {
+		return fmt.Errorf("can't send message: %w", err)
+	}
+	return nil
+}
+
+func (c *Client) ChangeMessageText(params MessageParams) error {
+	q := url.Values{}
+	q.Add("chat_id", strconv.Itoa(params.ChatID))
+	q.Add("message_id", strconv.Itoa(params.MessageID))
+	q.Add("caption", params.Text)
+	q.Add("parse_mode", "html")
+
+	_, err := c.doRequest("editMessageCaption", q)
 	if err != nil {
 		return fmt.Errorf("can't send message: %w", err)
 	}
